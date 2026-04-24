@@ -10,12 +10,13 @@ scripts/pdf2md.py
 # ---------- YAML 配置路径 ----------
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
-# ---------- 运行时覆盖（默认 None，覆盖时生效）----------
+# ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
 PAPER_DIR = None              # PDF 源文件目录
 MD_ZIP_DIR = None             # MinerU 转换结果目录
 MD_DIR = None                 # Markdown 输出目录
 BATCH_SIZE = None             # 每批 PDF 数量
 BATCH_DELAY = None            # 批次间延迟（秒）
+SUB_FOLDER = None             # 子文件夹名称，null 表示处理所有子文件夹
 # ----------------------------------
 
 import os
@@ -24,6 +25,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 import sys
 import time
 import asyncio
+import argparse
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -43,8 +45,16 @@ from src.config_loader import ConfigLoader, get_cfg
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-def resolve_config():
-    """解析配置：脚本变量为 None 时用 yaml 的值"""
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="PDF → MD 批量转换")
+    parser.add_argument("--sub-folder", "-s", type=str, default=None,
+                        help="指定子文件夹名称，如 NiMnIn")
+    return parser.parse_args()
+
+
+def resolve_config(sub_folder_cmd: str = None):
+    """解析配置：命令行 > 脚本变量 > yaml"""
     cfg = get_cfg(CONFIG_FILE)
 
     resolved = {}
@@ -58,10 +68,43 @@ def resolve_config():
     resolved["BATCH_SIZE"] = BATCH_SIZE if BATCH_SIZE is not None else cfg.get("pdf2md.batch_size", 20)
     resolved["BATCH_DELAY"] = BATCH_DELAY if BATCH_DELAY is not None else cfg.get("pdf2md.batch_delay", 3)
 
+    # 子文件夹参数：命令行 > 脚本变量 > yaml
+    if sub_folder_cmd:
+        resolved["SUB_FOLDER"] = sub_folder_cmd
+    elif SUB_FOLDER is not None:
+        resolved["SUB_FOLDER"] = SUB_FOLDER
+    else:
+        resolved["SUB_FOLDER"] = cfg.get("pdf2md.sub_folder")
+
     # MinerU token
     resolved["MINERU_TOKEN"] = cfg.get("mineru.api_token")
 
     return resolved
+
+
+def get_sub_folders(paper_dir: Path, sub_folder: str):
+    """
+    获取要处理的子文件夹列表
+
+    参数:
+        paper_dir: paper 目录路径
+        sub_folder: 指定子文件夹名称，null 表示处理所有子文件夹
+
+    返回:
+        list: 子文件夹路径列表
+    """
+    if sub_folder:
+        # 只处理指定的子文件夹
+        target = paper_dir / sub_folder
+        if target.exists() and target.is_dir():
+            return [target]
+        else:
+            print(f"[ERROR] 指定子文件夹不存在: {target}")
+            return []
+    else:
+        # 处理所有子文件夹
+        sub_folders = [d for d in paper_dir.iterdir() if d.is_dir()]
+        return sub_folders
 
 
 async def process_all_batches(token, pdf_files, zip_dir, batch_size, batch_delay):
@@ -100,7 +143,9 @@ async def process_all_batches(token, pdf_files, zip_dir, batch_size, batch_delay
 
 
 if __name__ == "__main__":
-    cfg = resolve_config()
+    args = parse_args()
+
+    cfg = resolve_config(args.sub_folder)
 
     paper_dir = cfg["PAPER_DIR"]
     md_zip_dir = cfg["MD_ZIP_DIR"]
@@ -108,26 +153,44 @@ if __name__ == "__main__":
     batch_size = cfg["BATCH_SIZE"]
     batch_delay = cfg["BATCH_DELAY"]
     mineru_token = cfg["MINERU_TOKEN"]
+    sub_folder = cfg["SUB_FOLDER"]
 
-    md_zip_dir.mkdir(parents=True, exist_ok=True)
-    md_dir.mkdir(parents=True, exist_ok=True)
-
-    pdf_files = list(paper_dir.glob("*.pdf"))
-    if not pdf_files:
-        print(f"[ERROR] No PDF found in {paper_dir}")
+    # 获取要处理的子文件夹
+    sub_folders = get_sub_folders(paper_dir, sub_folder)
+    if not sub_folders:
+        print("[ERROR] 没有找到要处理的子文件夹")
         sys.exit(1)
 
-    print(f"Found {len(pdf_files)} PDF files")
-    print(f"Batching: {batch_size} per batch")
+    total_pdf_count = 0
+    for sub_dir in sub_folders:
+        print(f"\n处理子文件夹: {sub_dir.name}")
+        print("=" * 40)
 
-    # Run all batches in single async context
-    results = asyncio.run(process_all_batches(mineru_token, pdf_files, md_zip_dir, batch_size, batch_delay))
+        # 该子文件夹的输出目录
+        sub_md_zip_dir = md_zip_dir / sub_dir.name
+        sub_md_dir = md_dir / sub_dir.name
 
-    # Extract MD files
-    print("\n" + "=" * 36)
-    print("Extracting MD files...")
-    zip_files = list(md_zip_dir.glob("*.zip"))
-    print(f"Found {len(zip_files)} zip files")
-    extracted = extract_md_from_folders(zip_files, output_dir=md_dir, delete_zip=False)
+        sub_md_zip_dir.mkdir(parents=True, exist_ok=True)
+        sub_md_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[FINAL] Extracted {len(extracted)} MD files to {md_dir}")
+        # 获取该子文件夹下的 PDF 文件
+        pdf_files = list(sub_dir.glob("*.pdf"))
+        if not pdf_files:
+            print(f"[WARN] No PDF found in {sub_dir}")
+            continue
+
+        print(f"Found {len(pdf_files)} PDF files in {sub_dir.name}")
+        total_pdf_count += len(pdf_files)
+
+        # Run all batches in single async context
+        results = asyncio.run(process_all_batches(mineru_token, pdf_files, sub_md_zip_dir, batch_size, batch_delay))
+
+        # Extract MD files
+        print("\n" + "=" * 40)
+        print(f"Extracting MD files for {sub_dir.name}...")
+        zip_files = list(sub_md_zip_dir.glob("*.zip"))
+        print(f"Found {len(zip_files)} zip files")
+        extracted = extract_md_from_folders(zip_files, output_dir=sub_md_dir, delete_zip=False)
+        print(f"Extracted {len(extracted)} MD files to {sub_md_dir}")
+
+    print(f"\n[FINAL] Total: {total_pdf_count} PDF files processed")

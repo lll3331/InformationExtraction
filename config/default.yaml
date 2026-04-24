@@ -6,11 +6,12 @@ paths:
   md_zip_dir: "md_zip"
   md_dir: "md"
   json_dir: "json"
-  result_csv: "result.csv"
+  results_dir: "results"
 
 pdf2md:
   batch_size: 20
   batch_delay: 3
+  sub_folder: null  # null 表示处理所有子文件夹，否则只处理指定子文件夹如 "NiMnSn"
 
 md2json:
   prompt_file: "config/prompts/default.md"
@@ -22,6 +23,10 @@ md2json:
     - "REFERENCES"
     - "参考文献"
     - "Supplementary"
+  sub_folder: null  # null 表示处理所有子文件夹
+
+json2csv:
+  sub_folder: null  # null 表示汇总所有子文件夹的 CSV
 
 mineru:
   api_token: null

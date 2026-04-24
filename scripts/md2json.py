@@ -10,7 +10,7 @@ scripts/md2json.py
 # ---------- YAML 配置路径 ----------
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
-# ---------- 运行时覆盖（默认 None，覆盖时生效）----------
+# ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
 MD_DIR = None                 # Markdown 输入目录
 JSON_DIR = None               # JSON 输出目录
 SCHEMA_FILE = None            # Schema 文件路径
@@ -18,10 +18,12 @@ PROMPT_FILE = None            # Prompt 模板文件路径
 TEMPERATURE = None            # LLM 温度
 MAX_CONCURRENT = None         # 最大并发数
 EXCLUDE_SECTIONS = None       # 要过滤的章节标题关键词列表
+SUB_FOLDER = None             # 子文件夹名称，null 表示处理所有子文件夹
 # ----------------------------------
 
 import os
 import sys
+import argparse
 from pathlib import Path
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -36,8 +38,16 @@ from src.llm_extractor import BatchExtractor
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-def resolve_config():
-    """解析配置：脚本变量为 None 时用 yaml 的值"""
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="MD → JSON 批量提取")
+    parser.add_argument("--sub-folder", "-s", type=str, default=None,
+                        help="指定子文件夹名称，如 NiMnIn")
+    return parser.parse_args()
+
+
+def resolve_config(sub_folder_cmd: str = None):
+    """解析配置：命令行 > 脚本变量 > yaml"""
     cfg = get_cfg(CONFIG_FILE)
 
     resolved = {}
@@ -57,12 +67,43 @@ def resolve_config():
     # 排除章节
     resolved["EXCLUDE_SECTIONS"] = EXCLUDE_SECTIONS if EXCLUDE_SECTIONS is not None else cfg.get("md2json.exclude_sections", [])
 
+    # 子文件夹参数：命令行 > 脚本变量 > yaml
+    if sub_folder_cmd:
+        resolved["SUB_FOLDER"] = sub_folder_cmd
+    elif SUB_FOLDER is not None:
+        resolved["SUB_FOLDER"] = SUB_FOLDER
+    else:
+        resolved["SUB_FOLDER"] = cfg.get("md2json.sub_folder")
+
     # LLM 配置
     resolved["LLM_MODEL"] = cfg.get("llm.model", "qwen3-max")
     resolved["LLM_API_KEY"] = cfg.get("llm.api_key")
     resolved["LLM_BASE_URL"] = cfg.get("llm.base_url")
 
     return resolved
+
+
+def get_sub_folders(md_dir: Path, sub_folder: str):
+    """
+    获取要处理的子文件夹列表
+
+    参数:
+        md_dir: md 目录路径
+        sub_folder: 指定子文件夹名称，null 表示处理所有子文件夹
+
+    返回:
+        list: 子文件夹路径列表
+    """
+    if sub_folder:
+        target = md_dir / sub_folder
+        if target.exists() and target.is_dir():
+            return [target]
+        else:
+            print(f"[ERROR] 指定子文件夹不存在: {target}")
+            return []
+    else:
+        sub_folders = [d for d in md_dir.iterdir() if d.is_dir()]
+        return sub_folders
 
 
 def render_prompt(prompt_template_path: Path, schema: dict) -> str:
@@ -106,7 +147,8 @@ def render_prompt(prompt_template_path: Path, schema: dict) -> str:
 
 def main() -> None:
     """主流程"""
-    cfg = resolve_config()
+    args = parse_args()
+    cfg = resolve_config(args.sub_folder)
 
     md_dir = cfg["MD_DIR"]
     json_dir = cfg["JSON_DIR"]
@@ -115,6 +157,7 @@ def main() -> None:
     temperature = cfg["TEMPERATURE"]
     max_concurrent = cfg["MAX_CONCURRENT"]
     exclude_sections = cfg["EXCLUDE_SECTIONS"]
+    sub_folder = cfg["SUB_FOLDER"]
     llm_model = cfg["LLM_MODEL"]
     llm_api_key = cfg["LLM_API_KEY"]
     llm_base_url = cfg["LLM_BASE_URL"]
@@ -140,31 +183,49 @@ def main() -> None:
         temperature=temperature
     )
 
-    json_dir.mkdir(parents=True, exist_ok=True)
-
-    md_files = list(md_dir.glob("*.md"))
-    if not md_files:
-        print(f"[ERROR] No .md files found in {md_dir}")
+    # 获取要处理的子文件夹
+    sub_folders = get_sub_folders(md_dir, sub_folder)
+    if not sub_folders:
+        print("[ERROR] 没有找到要处理的子文件夹")
         sys.exit(1)
 
-    print(f"Found {len(md_files)} MD files")
-    print(f"Schema: {schema_path.name}")
-    print(f"Prompt: {prompt_path.name}")
-    print(f"Max concurrent: {max_concurrent}")
+    total_md_count = 0
+    for sub_dir in sub_folders:
+        print(f"\n处理子文件夹: {sub_dir.name}")
+        print("=" * 40)
 
-    # 创建提取器
-    extractor = BatchExtractor(
-        input_folder=md_dir,
-        output_folder=json_dir,
-        llm=llm,
-        system_prompt=system_prompt,
-        output_model=list_model,
-        max_concurrent=max_concurrent,
-        exclude_sections=exclude_sections
-    )
+        sub_md_dir = sub_dir
+        sub_json_dir = json_dir / sub_dir.name
 
-    extractor.run_batch()
-    print(f"\n[FINAL] JSON files saved to {json_dir}")
+        sub_json_dir.mkdir(parents=True, exist_ok=True)
+
+        md_files = list(sub_md_dir.glob("*.md"))
+        if not md_files:
+            print(f"[WARN] No .md files found in {sub_md_dir}")
+            continue
+
+        print(f"Found {len(md_files)} MD files")
+        print(f"Schema: {schema_path.name}")
+        print(f"Prompt: {prompt_path.name}")
+        print(f"Max concurrent: {max_concurrent}")
+
+        total_md_count += len(md_files)
+
+        # 创建提取器
+        extractor = BatchExtractor(
+            input_folder=sub_md_dir,
+            output_folder=sub_json_dir,
+            llm=llm,
+            system_prompt=system_prompt,
+            output_model=list_model,
+            max_concurrent=max_concurrent,
+            exclude_sections=exclude_sections
+        )
+
+        extractor.run_batch()
+        print(f"[OK] JSON files saved to {sub_json_dir}")
+
+    print(f"\n[FINAL] Total: {total_md_count} MD files processed")
 
 
 if __name__ == "__main__":
