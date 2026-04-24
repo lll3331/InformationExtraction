@@ -1,0 +1,42 @@
+{
+  "name": "magnetocaloric",
+  "description": "磁热材料文献信息提取",
+  "fields": [
+    {
+      "name": "alloy_composition",
+      "type": "string",
+      "description": "合金化学成分",
+      "example": "Ni50Mn35Sn15"
+    },
+    {
+      "name": "sample_preparation",
+      "type": "string",
+      "description": "样品制备方法",
+      "example": "感应熔炼+区熔退火+水淬"
+    },
+    {
+      "name": "max_magnetic_entropy",
+      "type": "string",
+      "description": "最大磁熵变数值及单位",
+      "example": "18.5 J/kg·K"
+    },
+    {
+      "name": "temperature",
+      "type": "string",
+      "description": "对应温度",
+      "example": "305 K"
+    },
+    {
+      "name": "magnetic_field",
+      "type": "string",
+      "description": "外加磁场",
+      "example": "5 T"
+    },
+    {
+      "name": "source_pdf",
+      "type": "string",
+      "description": "来源PDF文件名",
+      "example": "paper.pdf"
+    }
+  ]
+}

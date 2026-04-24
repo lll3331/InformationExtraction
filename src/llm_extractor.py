@@ -1,35 +1,29 @@
+"""LLM异步批量提取器核心模块"""
 import asyncio
 import time
 import logging
 from pathlib import Path
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from pydantic import BaseModel, Field
-from typing import Optional, List, Tuple
+from pydantic import BaseModel
+from typing import Optional, List, Tuple, Type, Union
+
 import json
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 
 
-class MagnetocaloricData(BaseModel):
-    """磁热材料数据结构：6个必填字段"""
-    alloy_composition: str = Field(description="合金化学成分，如 Ni50Mn35Sn15")
-    sample_preparation: str = Field(description="样品制备/获取方法，如 感应熔炼+退火+淬火")
-    max_magnetic_entropy: str = Field(description="最大磁熵变数值及单位，如 18.5 J/kg·K")
-    temperature: str = Field(description="最大磁熵变对应的温度及单位，如 310 K")
-    magnetic_field: str = Field(description="测量时外加磁场及单位，如 5 T")
-    source_pdf: str = Field(description="来源PDF文件名，用于溯源")
-
-
-class MagnetocaloricDataList(BaseModel):
-    """包装为列表以兼容 with_structured_output"""
-    data: List[MagnetocaloricData] = Field(default_factory=list, description="磁热材料数据列表")
-
-
 def setup_logger(log_path: Path) -> logging.Logger:
-    """配置日志：文件滚动 + 控制台输出"""
+    """
+    配置日志：文件滚动 + 控制台输出
+
+    参数:
+        log_path: 日志文件路径
+
+    返回:
+        logging.Logger: 配置好的日志记录器
+    """
     logger = logging.getLogger("LLMExtractor")
     logger.setLevel(logging.INFO)
     if logger.handlers:
@@ -53,7 +47,15 @@ def setup_logger(log_path: Path) -> logging.Logger:
 class BatchExtractor:
     """
     异步批量从 MD 文件中提取结构化数据。
-    使用 llm.with_structured_output(MagnetocaloricDataList) 强制输出 JSON。
+
+    参数:
+        input_folder: MD文件所在目录
+        output_folder: JSON输出目录
+        llm: LangChain聊天模型实例
+        system_prompt: 系统提示词
+        output_model: Pydantic模型类，用于with_structured_output
+        max_concurrent: 最大并发数，默认10
+        exclude_sections: 要过滤掉的章节标题关键词列表
     """
 
     def __init__(
@@ -62,26 +64,32 @@ class BatchExtractor:
         output_folder: Path,
         llm: BaseChatModel,
         system_prompt: str,
-        max_concurrent: int = 10
+        output_model: Type[BaseModel],
+        max_concurrent: int = 10,
+        exclude_sections: Optional[List[str]] = None
     ) -> None:
         self.input_folder = Path(input_folder)
         self.output_folder = Path(output_folder)
         self.llm = llm
         self.system_prompt = system_prompt
         self.max_concurrent = max_concurrent
+        self.exclude_sections = exclude_sections or [
+            "ACKNOWLEDGMENT", "REFERENCES", "参考文献", "Supplementary"
+        ]
 
-        # 绑定结构化输出
-        self.structured_llm = self.llm.with_structured_output(MagnetocaloricDataList)
+        self.structured_llm = self.llm.with_structured_output(output_model)
 
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.log_path = self.output_folder / "processing_log.txt"
         self.logger = setup_logger(self.log_path)
 
-        self.processed = 0
-        self.failed = 0
-        self.total = 0
+        self.processed: int = 0
+        self.failed: int = 0
+        self.total: int = 0
+        self.start_time: Optional[float] = None
 
     def log(self, msg: str, level: str = "info") -> None:
+        """统一日志方法"""
         if level == "error":
             self.logger.error(msg)
         elif level == "warning":
@@ -90,16 +98,22 @@ class BatchExtractor:
             self.logger.info(msg)
 
     async def _process_single(self, md_file: Path, index: int) -> Tuple[bool, float]:
-        """处理单个 MD 文件"""
+        """
+        处理单个MD文件
+
+        参数:
+            md_file: MD文件路径
+            index: 文件在处理队列中的索引
+
+        返回:
+            Tuple[bool, float]: (是否成功, 处理耗时秒数)
+        """
         start = time.time()
-        start_str = datetime.now().strftime("%H:%M:%S")
 
         try:
-            # 读取并清理内容
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # 过滤参考文献等章节
             content = self._filter_content(content)
 
             messages = [
@@ -107,13 +121,14 @@ class BatchExtractor:
                 HumanMessage(content=f"**Paper content**\n{content}")
             ]
 
-            # 调用 LLM
             response = await self.structured_llm.ainvoke(messages)
 
-            # 写入 JSON
             out_file = self.output_folder / f"{md_file.stem}.json"
             with open(out_file, "w", encoding="utf-8") as f:
-                json.dump(response.model_dump() if hasattr(response, "model_dump") else response, f, ensure_ascii=False, indent=2)
+                if hasattr(response, "model_dump"):
+                    json.dump(response.model_dump(), f, ensure_ascii=False, indent=2)
+                else:
+                    json.dump(response, f, ensure_ascii=False, indent=2)
 
             elapsed = time.time() - start
             self.processed += 1
@@ -128,23 +143,30 @@ class BatchExtractor:
             return False, elapsed
 
     def _filter_content(self, content: str) -> str:
-        """过滤掉参考文献、致谢等章节"""
-        excluded = ["ACKNOWLEDGMENT", "REFERENCES", "参考文献", "Supplementary"]
+        """
+        过滤掉参考文献、致谢等章节，仅当行首出现标题行时重置跳过状态
+
+        参数:
+            content: 原始MD内容
+
+        返回:
+            str: 过滤后的内容
+        """
         lines = []
         skip = False
         for line in content.split("\n"):
-            up = line.upper().replace(" ", "")
-            if any(ex in up for ex in excluded):
-                skip = True
-                continue
-            skip = False
+            is_heading = line.startswith("#")
+            if is_heading:
+                # 检查标题是否包含要排除的关键词
+                heading_upper = line.upper().replace(" ", "").replace("#", "")
+                skip = any(ex.upper().replace(" ", "") in heading_upper for ex in self.exclude_sections)
             if not skip:
                 lines.append(line)
         return "\n".join(lines)
 
     async def run(self) -> None:
         """异步执行所有文件"""
-        md_files = list(self.input_folder.rglob("*.md"))
+        md_files: List[Path] = list(self.input_folder.rglob("*.md"))
         self.total = len(md_files)
 
         if self.total == 0:
@@ -159,14 +181,14 @@ class BatchExtractor:
 
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
-        async def bounded_task(md_file: Path, i: int):
+        async def bounded_task(md_file: Path, i: int) -> Tuple[bool, float]:
             async with semaphore:
                 return await self._process_single(md_file, i)
 
         tasks = [bounded_task(f, i) for i, f in enumerate(md_files, 1)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        total_time = time.time() - self.start_time if hasattr(self, "start_time") else 0
+        total_time = time.time() - self.start_time if self.start_time else 0
         self.log("")
         self.log("=== Batch Completed ===")
         self.log(f"Processed: {self.processed} | Failed: {self.failed} | Success: {self.processed/self.total*100:.1f}%")
@@ -175,5 +197,5 @@ class BatchExtractor:
         """同步入口，启动异步任务"""
         self.start_time = time.time()
         asyncio.run(self.run())
-        self.total_time = time.time() - self.start_time
-        self.log(f"Total time: {self.total_time:.1f}s ({self.total_time/60:.1f}min)")
+        total_time = time.time() - self.start_time
+        self.log(f"Total time: {total_time:.1f}s ({total_time/60:.1f}min)")

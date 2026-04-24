@@ -1,16 +1,15 @@
+"""MinerU API 客户端模块"""
 import os
-os.environ["PYTHONIOENCODING"] = "utf-8"
-
 import sys
 from pathlib import Path
+from typing import List, Dict, Any, Optional
 
-# Force UTF-8 output on Windows
+# Windows下强制UTF-8输出
 if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from typing import List, Dict, Any, Optional
 import requests
 import asyncio
 import aiohttp
@@ -19,6 +18,17 @@ import shutil
 
 
 def upload_files_to_mineru(token: str, files: List[Path], model_version: str = "vlm") -> Optional[str]:
+    """
+    上传文件到 MinerU 批量接口
+
+    参数:
+        token: MinerU API token
+        files: 需要上传的文件路径列表
+        model_version: 模型版本，默认 "vlm"
+
+    返回:
+        str: batch_id 或 None（失败时）
+    """
     url = "https://mineru.net/api/v4/file-urls/batch"
     headers = {
         "Content-Type": "application/json",
@@ -52,6 +62,17 @@ def upload_files_to_mineru(token: str, files: List[Path], model_version: str = "
 
 
 async def _download_file(session: aiohttp.ClientSession, url: str, save_path: Path) -> bool:
+    """
+    异步下载单个文件
+
+    参数:
+        session: aiohttp会话
+        url: 下载URL
+        save_path: 保存路径
+
+    返回:
+        bool: 是否成功
+    """
     async with session.get(url) as resp:
         if resp.status != 200:
             print(f"Download failed: {url} code={resp.status}")
@@ -69,6 +90,18 @@ async def query_and_download_all_results_async(
     output_dir: Path,
     poll_interval: float = 2.0
 ) -> Optional[List[Dict[str, Any]]]:
+    """
+    轮询 MinerU 批量转换状态，全部完成后异步下载所有 ZIP
+
+    参数:
+        token: API token
+        batch_id: 上传返回的 batch_id
+        output_dir: ZIP 下载目录
+        poll_interval: 轮询间隔（秒）
+
+    返回:
+        List[Dict[str, Any]]: extract_result 列表 或 None
+    """
     url = f"https://mineru.net/api/v4/extract-results/batch/{batch_id}"
     headers = {"Authorization": f"Bearer {token}"}
     output_dir = Path(output_dir)
@@ -106,10 +139,21 @@ async def query_and_download_all_results_async(
 
 def extract_md_from_folders(
     zip_paths: List[Path],
-    output_dir: Path = None,
+    output_dir: Optional[Path] = None,
     delete_zip: bool = False
 ) -> List[Path]:
-    extracted = []
+    """
+    解压 ZIP 列表，从每个 ZIP 解压出的文件夹中提取唯一的 .md 文件
+
+    参数:
+        zip_paths: ZIP 文件路径列表
+        output_dir: 统一输出目录（None 则输出到 ZIP 同目录下）
+        delete_zip: 解压后是否删除 ZIP
+
+    返回:
+        List[Path]: 成功提取的 MD 文件路径列表
+    """
+    extracted: List[Path] = []
 
     for zip_path in zip_paths:
         zip_path = Path(zip_path)

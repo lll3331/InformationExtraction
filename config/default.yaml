@@ -1,0 +1,34 @@
+# 框架默认配置
+# 实际使用时通过 scripts 中的 CONFIG_FILE 指定 custom yaml 覆盖此配置
+
+paths:
+  paper_dir: "paper"
+  md_zip_dir: "md_zip"
+  md_dir: "md"
+  json_dir: "json"
+  result_csv: "result.csv"
+
+pdf2md:
+  batch_size: 20
+  batch_delay: 3
+
+md2json:
+  prompt_file: "config/prompts/default.md"
+  schema_file: "config/schemas/default.json"
+  temperature: 0.1
+  max_concurrent: 10
+  exclude_sections:
+    - "ACKNOWLEDGMENT"
+    - "REFERENCES"
+    - "参考文献"
+    - "Supplementary"
+
+mineru:
+  api_token: null
+  model_version: "vlm"
+
+llm:
+  provider: "qwen"
+  model: "qwen3-max"
+  api_key: null
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"

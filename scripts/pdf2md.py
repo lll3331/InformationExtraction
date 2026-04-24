@@ -3,7 +3,21 @@
 """
 scripts/pdf2md.py
 批量 PDF → MD，通过 MinerU 转换
+
+【统一参数配置区】
 """
+
+# ---------- YAML 配置路径 ----------
+CONFIG_FILE = "config/custom_magnetocaloric.yaml"
+
+# ---------- 运行时覆盖（默认 None，覆盖时生效）----------
+PAPER_DIR = None              # PDF 源文件目录
+MD_ZIP_DIR = None             # MinerU 转换结果目录
+MD_DIR = None                 # Markdown 输出目录
+BATCH_SIZE = None             # 每批 PDF 数量
+BATCH_DELAY = None            # 批次间延迟（秒）
+# ----------------------------------
+
 import os
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -24,28 +38,41 @@ from src.mineru_client import (
     query_and_download_all_results_async,
     extract_md_from_folders
 )
-from utils.config import get_cfg
+from src.config_loader import ConfigLoader, get_cfg
 
 PROJECT_ROOT = Path(__file__).parent.parent
-PAPER_DIR = PROJECT_ROOT / "paper"
-MD_ZIP_DIR = PROJECT_ROOT / "md_zip"
-MD_DIR = PROJECT_ROOT / "md"
 
-BATCH_SIZE = 20
-BATCH_DELAY = 3
 
-cfg = get_cfg()
-MINERU_TOKEN = cfg["MinerU"]["API"]
+def resolve_config():
+    """解析配置：脚本变量为 None 时用 yaml 的值"""
+    cfg = get_cfg(CONFIG_FILE)
 
-async def process_all_batches(token, pdf_files, zip_dir):
+    resolved = {}
+
+    # 路径配置
+    resolved["PAPER_DIR"] = PAPER_DIR if PAPER_DIR is not None else PROJECT_ROOT / cfg.get("paths.paper_dir", "paper")
+    resolved["MD_ZIP_DIR"] = MD_ZIP_DIR if MD_ZIP_DIR is not None else PROJECT_ROOT / cfg.get("paths.md_zip_dir", "md_zip")
+    resolved["MD_DIR"] = MD_DIR if MD_DIR is not None else PROJECT_ROOT / cfg.get("paths.md_dir", "md")
+
+    # 批处理参数
+    resolved["BATCH_SIZE"] = BATCH_SIZE if BATCH_SIZE is not None else cfg.get("pdf2md.batch_size", 20)
+    resolved["BATCH_DELAY"] = BATCH_DELAY if BATCH_DELAY is not None else cfg.get("pdf2md.batch_delay", 3)
+
+    # MinerU token
+    resolved["MINERU_TOKEN"] = cfg.get("mineru.api_token")
+
+    return resolved
+
+
+async def process_all_batches(token, pdf_files, zip_dir, batch_size, batch_delay):
     """一次性处理所有批次，统一管理异步"""
     total = len(pdf_files)
-    total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+    total_batches = (total + batch_size - 1) // batch_size
     all_results = []
 
     for batch_idx in range(total_batches):
-        start = batch_idx * BATCH_SIZE
-        end = min(start + BATCH_SIZE, total)
+        start = batch_idx * batch_size
+        end = min(start + batch_size, total)
         batch = pdf_files[start:end]
 
         print(f"\n=== Batch {batch_idx + 1}/{total_batches} ({len(batch)} files) ===")
@@ -66,31 +93,41 @@ async def process_all_batches(token, pdf_files, zip_dir):
             print(f"[ERROR] Batch {batch_idx + 1} failed: {e}")
 
         if batch_idx < total_batches - 1:
-            print(f"Waiting {BATCH_DELAY}s...")
-            await asyncio.sleep(BATCH_DELAY)
+            print(f"Waiting {batch_delay}s...")
+            await asyncio.sleep(batch_delay)
 
     return all_results
 
-if __name__ == "__main__":
-    MD_ZIP_DIR.mkdir(parents=True, exist_ok=True)
-    MD_DIR.mkdir(parents=True, exist_ok=True)
 
-    pdf_files = list(PAPER_DIR.glob("*.pdf"))
+if __name__ == "__main__":
+    cfg = resolve_config()
+
+    paper_dir = cfg["PAPER_DIR"]
+    md_zip_dir = cfg["MD_ZIP_DIR"]
+    md_dir = cfg["MD_DIR"]
+    batch_size = cfg["BATCH_SIZE"]
+    batch_delay = cfg["BATCH_DELAY"]
+    mineru_token = cfg["MINERU_TOKEN"]
+
+    md_zip_dir.mkdir(parents=True, exist_ok=True)
+    md_dir.mkdir(parents=True, exist_ok=True)
+
+    pdf_files = list(paper_dir.glob("*.pdf"))
     if not pdf_files:
-        print(f"[ERROR] No PDF found in {PAPER_DIR}")
+        print(f"[ERROR] No PDF found in {paper_dir}")
         sys.exit(1)
 
     print(f"Found {len(pdf_files)} PDF files")
-    print(f"Batching: {BATCH_SIZE} per batch")
+    print(f"Batching: {batch_size} per batch")
 
     # Run all batches in single async context
-    results = asyncio.run(process_all_batches(MINERU_TOKEN, pdf_files, MD_ZIP_DIR))
+    results = asyncio.run(process_all_batches(mineru_token, pdf_files, md_zip_dir, batch_size, batch_delay))
 
     # Extract MD files
     print("\n" + "=" * 36)
     print("Extracting MD files...")
-    zip_files = list(MD_ZIP_DIR.glob("*.zip"))
+    zip_files = list(md_zip_dir.glob("*.zip"))
     print(f"Found {len(zip_files)} zip files")
-    extracted = extract_md_from_folders(zip_files, output_dir=MD_DIR, delete_zip=False)
+    extracted = extract_md_from_folders(zip_files, output_dir=md_dir, delete_zip=False)
 
-    print(f"\n[FINAL] Extracted {len(extracted)} MD files to {MD_DIR}")
+    print(f"\n[FINAL] Extracted {len(extracted)} MD files to {md_dir}")

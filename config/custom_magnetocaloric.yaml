@@ -1,0 +1,19 @@
+# 磁热材料文献信息提取配置
+# 覆盖 default.yaml 中的默认配置
+
+paths:
+  paper_dir: "paper"
+  md_zip_dir: "md_zip"
+  md_dir: "md"
+  json_dir: "json"
+  result_csv: "result.csv"
+
+md2json:
+  prompt_file: "config/prompts/magnetocaloric.md"
+  schema_file: "config/schemas/magnetocaloric.json"
+
+mineru:
+  api_token: "${MINERU_API_TOKEN}"
+
+llm:
+  api_key: "${LLM_API_KEY}"
