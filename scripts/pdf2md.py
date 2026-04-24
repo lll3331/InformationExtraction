@@ -10,13 +10,16 @@ scripts/pdf2md.py
 # ---------- YAML 配置路径 ----------
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
+# ---------- 运行时强制设置 ----------
+SUB_FOLDER = "NiMnIn"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
+# ----------------------------------
+
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
 PAPER_DIR = None              # PDF 源文件目录
 MD_ZIP_DIR = None             # MinerU 转换结果目录
 MD_DIR = None                 # Markdown 输出目录
 BATCH_SIZE = None             # 每批 PDF 数量
 BATCH_DELAY = None            # 批次间延迟（秒）
-SUB_FOLDER = None             # 子文件夹名称，null 表示处理所有子文件夹
 # ----------------------------------
 
 import os
@@ -25,7 +28,6 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 import sys
 import time
 import asyncio
-import argparse
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -45,16 +47,8 @@ from src.config_loader import ConfigLoader, get_cfg
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-def parse_args():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="PDF → MD 批量转换")
-    parser.add_argument("--sub-folder", "-s", type=str, default=None,
-                        help="指定子文件夹名称，如 NiMnIn")
-    return parser.parse_args()
-
-
-def resolve_config(sub_folder_cmd: str = None):
-    """解析配置：命令行 > 脚本变量 > yaml"""
+def resolve_config():
+    """解析配置：脚本变量 > yaml"""
     cfg = get_cfg(CONFIG_FILE)
 
     resolved = {}
@@ -68,13 +62,8 @@ def resolve_config(sub_folder_cmd: str = None):
     resolved["BATCH_SIZE"] = BATCH_SIZE if BATCH_SIZE is not None else cfg.get("pdf2md.batch_size", 20)
     resolved["BATCH_DELAY"] = BATCH_DELAY if BATCH_DELAY is not None else cfg.get("pdf2md.batch_delay", 3)
 
-    # 子文件夹参数：命令行 > 脚本变量 > yaml
-    if sub_folder_cmd:
-        resolved["SUB_FOLDER"] = sub_folder_cmd
-    elif SUB_FOLDER is not None:
-        resolved["SUB_FOLDER"] = SUB_FOLDER
-    else:
-        resolved["SUB_FOLDER"] = cfg.get("pdf2md.sub_folder")
+    # 子文件夹参数（强制设置，不从 yaml 读取）
+    resolved["SUB_FOLDER"] = SUB_FOLDER
 
     # MinerU token
     resolved["MINERU_TOKEN"] = cfg.get("mineru.api_token")
@@ -143,9 +132,7 @@ async def process_all_batches(token, pdf_files, zip_dir, batch_size, batch_delay
 
 
 if __name__ == "__main__":
-    args = parse_args()
-
-    cfg = resolve_config(args.sub_folder)
+    cfg = resolve_config()
 
     paper_dir = cfg["PAPER_DIR"]
     md_zip_dir = cfg["MD_ZIP_DIR"]

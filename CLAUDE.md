@@ -17,42 +17,33 @@ paper/{子文件夹}/*.pdf → MinerU → md_zip/{子文件夹}/*.zip → 解压
 
 ## 常用命令
 
+所有参数通过脚本开头设置，无需命令行传参：
+
 ```bash
-# PDF → MD（处理所有子文件夹）
-uv run python scripts/pdf2md.py
-
-# PDF → MD（处理指定子文件夹）
-uv run python scripts/pdf2md.py -s NiMnIn
-
-# MD → JSON（处理所有子文件夹）
+uv run python scripts/pdf2md.py   # 修改脚本开头 SUB_FOLDER 选择子文件夹
 uv run python scripts/md2json.py
-
-# MD → JSON（处理指定子文件夹）
-uv run python scripts/md2json.py -s NiMnIn
-
-# JSON → CSV（处理所有子文件夹，输出到 results/*.csv）
 uv run python scripts/json2csv.py
-
-# JSON → CSV（处理指定子文件夹）
-uv run python scripts/json2csv.py -s NiMnIn
 ```
 
 ## 配置系统
 
-**分层配置**：`命令行参数 > 脚本变量 > CONFIG_FILE 对应 yaml > default.yaml`
+**分层配置**：`脚本强制设置 > 脚本变量 > CONFIG_FILE 对应 yaml > default.yaml`
 
 每个脚本开头有统一参数区：
 ```python
 # ---------- YAML 配置路径 ----------
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
+# ---------- 运行时强制设置 ----------
+SUB_FOLDER = "NiMnIn"    # 必须设置：处理哪个子文件夹，None 表示处理所有
+
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
+PAPER_DIR = None
 MD_DIR = None
 JSON_DIR = None
 SCHEMA_FILE = None
 PROMPT_FILE = None
 TEMPERATURE = None
-SUB_FOLDER = None
 # ...
 ```
 
@@ -63,7 +54,7 @@ SUB_FOLDER = None
 - 输出到对应的 `md/NiMnSn/`、`json/NiMnSn/` 等子文件夹
 - `results/NiMnSn.csv`、`results/NiMnIn.csv` 等最终 CSV
 
-使用 `-s` 或 `--sub-folder` 参数指定要处理的子文件夹。
+修改 `SUB_FOLDER` 变量选择要处理的子文件夹。
 
 ## 目录结构
 
@@ -78,10 +69,11 @@ config/
     └── magnetocaloric.md
 
 src/
-├── config_loader.py           # 分层配置加载器
+├── config_loader.py           # 分层配置加载器（支持 ${VAR} 环境变量展开）
 ├── pydantic_generator.py      # JSON Schema → Pydantic 模型
 ├── llm_extractor.py           # 异步批量提取器
-└── mineru_client.py           # MinerU API 调用
+├── mineru_client.py           # MinerU API 调用
+└── config.py                  # 旧版配置加载（兼容）
 
 scripts/
 ├── pdf2md.py                  # PDF → MD
@@ -116,3 +108,9 @@ results/                       # 最终 CSV 输出
 配置文件中支持 `${VAR}` 形式的环境变量展开。常用环境变量：
 - `MINERU_API_TOKEN`：MinerU API 密钥
 - `LLM_API_KEY`：LLM API 密钥
+
+在 Windows 上运行前需先设置：
+```cmd
+set MINERU_API_TOKEN=你的token
+set LLM_API_KEY=你的key
+```

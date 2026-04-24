@@ -10,18 +10,20 @@ scripts/json2csv.py
 # ---------- YAML 配置路径 ----------
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
+# ---------- 运行时强制设置 ----------
+SUB_FOLDER = "NiMnIn"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
+# ----------------------------------
+
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
 JSON_DIR = None               # JSON 输入目录
 RESULTS_DIR = None            # CSV 输出目录
 SCHEMA_FILE = None            # Schema 文件路径（用于确定 CSV 列顺序）
-SUB_FOLDER = None             # 子文件夹名称，null 表示汇总所有子文件夹
 # ----------------------------------
 
 import os
 import sys
 import json
 import csv
-import argparse
 from pathlib import Path
 from typing import List
 
@@ -33,16 +35,8 @@ from src.pydantic_generator import get_schema_field_names
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-def parse_args():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="JSON → CSV 合并")
-    parser.add_argument("--sub-folder", "-s", type=str, default=None,
-                        help="指定子文件夹名称，如 NiMnIn")
-    return parser.parse_args()
-
-
-def resolve_config(sub_folder_cmd: str = None):
-    """解析配置：命令行 > 脚本变量 > yaml"""
+def resolve_config():
+    """解析配置：脚本变量 > yaml"""
     cfg = get_cfg(CONFIG_FILE)
 
     resolved = {}
@@ -54,13 +48,8 @@ def resolve_config(sub_folder_cmd: str = None):
     # Schema 文件
     resolved["SCHEMA_FILE"] = SCHEMA_FILE if SCHEMA_FILE is not None else cfg.get("md2json.schema_file")
 
-    # 子文件夹参数：命令行 > 脚本变量 > yaml
-    if sub_folder_cmd:
-        resolved["SUB_FOLDER"] = sub_folder_cmd
-    elif SUB_FOLDER is not None:
-        resolved["SUB_FOLDER"] = SUB_FOLDER
-    else:
-        resolved["SUB_FOLDER"] = cfg.get("json2csv.sub_folder")
+    # 子文件夹参数（强制设置，不从 yaml 读取）
+    resolved["SUB_FOLDER"] = SUB_FOLDER
 
     return resolved
 
@@ -142,8 +131,7 @@ def json_files_to_csv(json_dir: Path, output_csv: Path, field_names: List[str]) 
 
 def main() -> None:
     """主流程"""
-    args = parse_args()
-    cfg = resolve_config(args.sub_folder)
+    cfg = resolve_config()
 
     json_dir = cfg["JSON_DIR"]
     results_dir = cfg["RESULTS_DIR"]
