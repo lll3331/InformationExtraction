@@ -190,6 +190,9 @@ def extract_md_from_folders(
         print(f"[OK] Moved to: {new_path.name}")
         extracted.append(new_path)
 
+        # 删除解压后的文件夹，保留 zip 原文件
+        shutil.rmtree(out_dir)
+
         if delete_zip:
             zip_path.unlink()
 
