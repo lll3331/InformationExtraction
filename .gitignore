@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data directories (not committed)
+json/
+md/
+md_zip/
+paper/
+results/
+
+# Environment files
+.env
+*.log
