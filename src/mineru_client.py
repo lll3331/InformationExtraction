@@ -1,12 +1,13 @@
 """MinerU API 客户端模块"""
+import io
 import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-# Windows下强制UTF-8输出
+# Windows下强制UTF-8输出（避免GBK无法编码特殊字符）
+# uv run python 已包装过 TextIOWrapper，直接重新包装即可
 if sys.platform == "win32":
-    import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -34,8 +35,23 @@ def upload_files_to_mineru(token: str, files: List[Path], model_version: str = "
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}"
     }
+    # data_id 最大128字符，截断以避免超限；同名文件添加索引后缀以避免冲突
+    MAX_DATA_ID_LEN = 120
+    used_ids = []
+    file_entries = []
+    for f in files:
+        base_id = f.stem[:MAX_DATA_ID_LEN]
+        data_id = base_id
+        idx = 1
+        while data_id in used_ids:
+            idx += 1
+            # 腾出空间给 _1, _2 后缀（预留3字符）
+            data_id = f"{base_id[:MAX_DATA_ID_LEN-4]}_{idx}"
+        used_ids.append(data_id)
+        file_entries.append({"name": f.name, "data_id": data_id})
+
     data = {
-        "files": [{"name": f.name, "data_id": f.stem} for f in files],
+        "files": file_entries,
         "model_version": model_version
     }
 
@@ -162,19 +178,52 @@ def extract_md_from_folders(
             continue
 
         out_dir = zip_path.with_suffix("")
+        # Windows 上需要使用短路径名（8.3格式）处理中文目录问题
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+            GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+            GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+            GetShortPathNameW.restype = wintypes.DWORD
+
         if out_dir.exists():
             print(f"[SKIP] Directory already exists: {out_dir.name}")
+            # 获取已存在目录的短路径
+            out_dir_short = out_dir
+            if sys.platform == "win32":
+                buf = ctypes.create_unicode_buffer(512)
+                if GetShortPathNameW(str(out_dir), buf, 512):
+                    out_dir_short = Path(buf.value)
         else:
             out_dir.mkdir(parents=True, exist_ok=True)
+            # 创建后立即获取短路径，后续所有操作都使用短路径
+            out_dir_short = out_dir
+            if sys.platform == "win32":
+                buf = ctypes.create_unicode_buffer(512)
+                if GetShortPathNameW(str(out_dir), buf, 512):
+                    out_dir_short = Path(buf.value)
+
             try:
+                # 手动提取每个文件，兼容不同操作系统的路径分隔符
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(out_dir)
+                    for member in zf.namelist():
+                        # 跳过目录
+                        if member.endswith("/"):
+                            continue
+                        # Windows 上修复反斜杠路径
+                        member_path = Path(member)
+                        # 计算目标路径（使用短路径）
+                        target = out_dir_short / member_path.name
+                        # 提取文件
+                        with zf.open(member) as src, open(target, "wb") as dst:
+                            dst.write(src.read())
                 print(f"[OK] Extracted: {zip_path.name}")
-            except zipfile.BadZipFile:
-                print(f"[ERROR] Bad zip: {zip_path.name}")
+            except Exception as e:
+                print(f"[ERROR] Failed to extract {zip_path.name}: {e}")
+                shutil.rmtree(out_dir_short, ignore_errors=True)
                 continue
 
-        md_files = list(out_dir.glob("*.md"))
+        md_files = list(out_dir_short.glob("*.md"))
         if not md_files:
             print(f"[WARN] No .md found in {out_dir.name}")
             continue
@@ -191,7 +240,7 @@ def extract_md_from_folders(
         extracted.append(new_path)
 
         # 删除解压后的文件夹，保留 zip 原文件
-        shutil.rmtree(out_dir)
+        shutil.rmtree(out_dir_short)
 
         if delete_zip:
             zip_path.unlink()

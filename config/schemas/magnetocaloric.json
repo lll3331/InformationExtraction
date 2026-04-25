@@ -31,12 +31,6 @@
       "type": "string",
       "description": "外加磁场",
       "example": "5 T"
-    },
-    {
-      "name": "source_pdf",
-      "type": "string",
-      "description": "来源PDF文件名",
-      "example": "paper.pdf"
     }
   ]
 }

@@ -126,9 +126,12 @@ class BatchExtractor:
             out_file = self.output_folder / f"{md_file.stem}.json"
             with open(out_file, "w", encoding="utf-8") as f:
                 if hasattr(response, "model_dump"):
-                    json.dump(response.model_dump(), f, ensure_ascii=False, indent=2)
+                    result_data = response.model_dump()
                 else:
-                    json.dump(response, f, ensure_ascii=False, indent=2)
+                    result_data = response
+                # 添加 source_md 字段，用于溯源
+                result_data["source_md"] = md_file.name
+                json.dump(result_data, f, ensure_ascii=False, indent=2)
 
             elapsed = time.time() - start
             self.processed += 1

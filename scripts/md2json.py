@@ -11,7 +11,7 @@ scripts/md2json.py
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
 # ---------- 运行时强制设置 ----------
-SUB_FOLDER = "NiMnIn"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
+SUB_FOLDER = "123"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
 # ----------------------------------
 
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------

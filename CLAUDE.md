@@ -17,12 +17,20 @@ paper/{子文件夹}/*.pdf → MinerU → md_zip/{子文件夹}/*.zip → 解压
 
 ## 常用命令
 
-所有参数通过脚本开头设置，无需命令行传参：
+所有参数通过脚本开头设置，无需命令行传参。**路径分隔符必须用正斜杠 `/`**（Windows CMD 不支持反斜杠）：
 
 ```bash
-uv run python scripts/pdf2md.py   # 修改脚本开头 SUB_FOLDER 选择子文件夹
-uv run python scripts/md2json.py
-uv run python scripts/json2csv.py
+uv run scripts/pdf2md.py          # 修改脚本开头 SUB_FOLDER 选择子文件夹
+uv run scripts/md2json.py         # MD → JSON（LLM 提取）
+uv run scripts/json2csv.py         # JSON → CSV
+uv run scripts/render_prompt.py    # 渲染 Prompt 模板，用于检查最终效果
+```
+
+**Windows 环境变量**（运行前需设置）：
+```cmd
+set MINERU_API_TOKEN=你的token
+set LLM_API_KEY=你的key
+set PYTHONIOENCODING=utf-8
 ```
 
 ## 配置系统
@@ -78,7 +86,8 @@ src/
 scripts/
 ├── pdf2md.py                  # PDF → MD
 ├── md2json.py                 # MD → JSON
-└── json2csv.py                # JSON → CSV
+├── json2csv.py                # JSON → CSV
+└── render_prompt.py           # 渲染 Prompt 模板（调试用）
 
 paper/                         # PDF 源文件（按子文件夹组织）
 ├── NiMnSn/
@@ -103,14 +112,17 @@ results/                       # 最终 CSV 输出
 }
 ```
 
+**注意**：`source_md` 字段由代码自动添加（值为 MD 文件名），无需在 Schema 中定义。
+
 ## 环境变量
 
 配置文件中支持 `${VAR}` 形式的环境变量展开。常用环境变量：
 - `MINERU_API_TOKEN`：MinerU API 密钥
 - `LLM_API_KEY`：LLM API 密钥
 
-在 Windows 上运行前需先设置：
-```cmd
-set MINERU_API_TOKEN=你的token
-set LLM_API_KEY=你的key
-```
+## Windows 环境注意事项
+
+- **路径分隔符**：命令行参数必须用 `/`，不能用 `\`
+- **中文路径**：Windows 对含中文字符的目录使用短路径名（8.3格式），代码中已做兼容处理
+- **编码问题**：`src/mineru_client.py` 会自动重定向 stdout/stderr 到 UTF-8，兼容特殊字符（如 `−` U+2212）
+- **环境变量**：建议设置 `PYTHONIOENCODING=utf-8`

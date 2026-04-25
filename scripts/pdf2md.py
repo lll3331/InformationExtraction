@@ -11,7 +11,7 @@ scripts/pdf2md.py
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
 # ---------- 运行时强制设置 ----------
-SUB_FOLDER = "NiMnIn"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
+SUB_FOLDER = "123"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
 # ----------------------------------
 
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
@@ -30,10 +30,7 @@ import time
 import asyncio
 from pathlib import Path
 
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+# Windows下强制UTF-8输出（由 src/mineru_client.py 统一处理）
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

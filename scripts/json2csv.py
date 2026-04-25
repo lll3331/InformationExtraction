@@ -11,7 +11,7 @@ scripts/json2csv.py
 CONFIG_FILE = "config/custom_magnetocaloric.yaml"
 
 # ---------- 运行时强制设置 ----------
-SUB_FOLDER = "NiMnIn"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
+SUB_FOLDER = "123"             # 必须设置：处理哪个子文件夹，如 NiMnSn、NiMnIn，None 表示处理所有
 # ----------------------------------
 
 # ---------- 运行时覆盖（默认 None，覆盖时生效） ----------
@@ -84,7 +84,7 @@ def json_files_to_csv(json_dir: Path, output_csv: Path, field_names: List[str]) 
     参数:
         json_dir: JSON文件所在目录
         output_csv: 输出CSV文件路径
-        field_names: CSV 字段名列表
+        field_names: CSV 字段名列表（不含 source_md）
 
     返回:
         int: 处理的记录数
@@ -95,6 +95,9 @@ def json_files_to_csv(json_dir: Path, output_csv: Path, field_names: List[str]) 
         return 0
 
     print(f"Found {len(json_files)} JSON files")
+
+    # source_md 始终在最前面
+    csv_fieldnames = ["source_md"] + field_names
 
     rows: List[dict] = []
     for jf in json_files:
@@ -109,6 +112,7 @@ def json_files_to_csv(json_dir: Path, output_csv: Path, field_names: List[str]) 
 
             for rec in records:
                 row = {k: rec.get(k, "") for k in field_names}
+                row["source_md"] = rec.get("source_md", jf.stem + ".md")
                 rows.append(row)
 
         except Exception as e:
@@ -121,7 +125,7 @@ def json_files_to_csv(json_dir: Path, output_csv: Path, field_names: List[str]) 
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(output_csv, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=field_names)
+        writer = csv.DictWriter(f, fieldnames=csv_fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
