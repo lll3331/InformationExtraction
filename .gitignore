@@ -16,6 +16,10 @@ md_zip/
 paper/
 results/
 
+# claude
+.claude/
+CLAUDE.md
+
 # Environment files
 .env
 *.log
